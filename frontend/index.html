@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Commerce Telemetry Stream</title>
+    <meta name="description" content="Real-time e-commerce event processing dashboard with live metrics, WebSocket streaming, and dynamic controls.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ─── Header ─── -->
+    <header class="header" id="header">
+        <div class="header__left">
+            <div class="header__logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+            </div>
+            <div>
+                <h1 class="header__title">Telemetry Stream</h1>
+                <p class="header__subtitle">E-Commerce Event Processing</p>
+            </div>
+        </div>
+        <div class="header__right">
+            <div class="connection-badge" id="connectionBadge">
+                <span class="connection-badge__dot" id="connectionDot"></span>
+                <span class="connection-badge__text" id="connectionText">Connecting...</span>
+            </div>
+            <div class="uptime-badge" id="uptimeBadge">
+                <span class="uptime-badge__label">Uptime</span>
+                <span class="uptime-badge__value" id="uptimeValue">0s</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- ─── Live Metrics Panel ─── -->
+        <section class="section" id="metricsSection">
+            <h2 class="section__title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+                Live Metrics
+            </h2>
+
+            <div class="metrics-grid">
+                <!-- Primary KPIs -->
+                <div class="metric-card metric-card--primary" id="cardEventsProcessed">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Events Processed</span>
+                        <span class="metric-card__value" id="totalEventsProcessed">0</span>
+                    </div>
+                </div>
+
+                <div class="metric-card metric-card--revenue" id="cardRevenue">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Total Revenue</span>
+                        <span class="metric-card__value" id="totalRevenue">$0</span>
+                    </div>
+                </div>
+
+                <div class="metric-card metric-card--rate" id="cardEps">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Processed / sec</span>
+                        <span class="metric-card__value" id="eventsPerSec">0</span>
+                    </div>
+                </div>
+
+                <!-- System metrics -->
+                <div class="metric-card" id="cardQueue">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Queue Backlog</span>
+                        <span class="metric-card__value" id="queueBacklog">0</span>
+                    </div>
+                </div>
+
+                <div class="metric-card" id="cardWorkers">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Active Workers</span>
+                        <span class="metric-card__value" id="activeWorkers">0</span>
+                    </div>
+                </div>
+
+                <div class="metric-card" id="cardClients">
+                    <div class="metric-card__icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">WS Clients</span>
+                        <span class="metric-card__value" id="activeClients">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Revenue breakdown -->
+            <div class="breakdown-grid">
+                <div class="breakdown-card">
+                    <h3 class="breakdown-card__title">Revenue by Category</h3>
+                    <div class="breakdown-list" id="revenueByCategory">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <div class="breakdown-card">
+                    <h3 class="breakdown-card__title">Revenue by Region</h3>
+                    <div class="breakdown-list" id="revenueByRegion">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── Control Panel ─── -->
+        <section class="section" id="controlSection">
+            <h2 class="section__title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                System Controls
+            </h2>
+
+            <div class="controls-grid">
+                <!-- Event Rate -->
+                <div class="control-card" id="controlRate">
+                    <div class="control-card__header">
+                        <span class="control-card__label">Target Events / sec</span>
+                        <span class="control-card__badge" id="rateCurrentBadge">Current: 3000</span>
+                    </div>
+                    <div class="control-card__row">
+                        <input type="range" id="rateSlider" class="control-slider" min="100" max="10000" step="100" value="3000">
+                        <input type="number" id="rateInput" class="control-number" min="100" max="10000" step="100" value="3000">
+                    </div>
+                    <button class="control-btn" id="rateApplyBtn" onclick="applyRate()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Apply
+                    </button>
+                </div>
+
+                <!-- Worker Count -->
+                <div class="control-card" id="controlWorkers">
+                    <div class="control-card__header">
+                        <span class="control-card__label">Worker Count</span>
+                        <span class="control-card__badge" id="workersCurrentBadge">Current: 6</span>
+                    </div>
+                    <div class="control-card__row">
+                        <input type="range" id="workersSlider" class="control-slider" min="1" max="20" step="1" value="6">
+                        <input type="number" id="workersInput" class="control-number" min="1" max="20" step="1" value="6">
+                    </div>
+                    <button class="control-btn" id="workersApplyBtn" onclick="applyWorkers()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Apply
+                    </button>
+                </div>
+
+                <!-- Heavy Computation Toggle -->
+                <div class="control-card" id="controlHeavy">
+                    <div class="control-card__header">
+                        <span class="control-card__label">Heavy Computation</span>
+                        <span class="control-card__badge" id="heavyCurrentBadge">OFF</span>
+                    </div>
+                    <p class="control-card__desc">Simulate CPU-intensive processing in each worker to stress test the pipeline.</p>
+                    <label class="toggle" id="heavyToggle">
+                        <input type="checkbox" id="heavyCheckbox" onchange="applyHeavy()">
+                        <span class="toggle__slider"></span>
+                        <span class="toggle__label" id="heavyLabel">Disabled</span>
+                    </label>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ─── Toast container ─── -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

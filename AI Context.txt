@@ -1,0 +1,141 @@
+### Phase 1: Project Setup and Data Modeling
+
+**Objective:** Establish the environment and define the strict data structures for events and metrics.
+
+* 
+**1.1 Environment Setup:** Initialize a standard Python environment (Python 3.9+). Install `fastapi`, `uvicorn`, and `websockets`.
+
+
+* 
+**1.2 Event Data Model:** Create a data class or Pydantic model for the e-commerce transaction event. It must include: `event_id` (UUID), `timestamp` (float/epoch), `user_id`, `product_id`, `category`, `region`, `price` (float), and `quantity` (int).
+
+
+* 
+**1.3 Shared State Manager:** Create a global, in-memory state dictionary to hold aggregated metrics. Initialize keys for `total_events_processed`, `total_revenue`, `revenue_by_category`, and `revenue_by_region`.
+
+
+* 
+**1.4 Concurrency Locks:** Instantiate an `asyncio.Lock` to protect this shared state dictionary from race conditions.
+
+
+* **Testing Phase 1:** Verify the environment loads and the data models can be instantiated with dummy data without errors.
+
+### Phase 2: High-Frequency Event Generator & Queue
+
+**Objective:** Create the mechanism that produces the simulation data and the buffer that holds it.
+
+* 
+**2.1 The Async Queue:** Instantiate an `asyncio.Queue` in the main application state.
+
+
+* 
+**2.2 The Generator Task:** Write an asynchronous function (`async def generate_events()`) that runs in a continuous `while True` loop.
+
+
+* 
+**2.3 Rate Limiting Logic:** Implement logic using `asyncio.sleep()` to control the generation rate, targeting exactly 3,000 events per second by default.
+
+
+* 
+**2.4 Queue Ingestion:** For each iteration, generate a random event and use `await queue.put(event)` to place it in the queue.
+
+
+* **Testing Phase 2:** Run the generator briefly. Print the `queue.qsize()` every second to ensure it is filling up at approximately 3,000 items per second.
+
+### Phase 3: Concurrent Consumer Workers
+
+**Objective:** Process the events safely and calculate the business metrics in real-time.
+
+* 
+**3.1 Worker Function:** Create an asynchronous worker function (`async def consume_events(worker_id)`).
+
+
+* 
+**3.2 Event Consumption:** Inside a `while True` loop, use `event = await queue.get()` to pull events.
+
+
+* 
+**3.3 Safe Aggregation:** Use the `asyncio.Lock` (e.g., `async with state_lock:`) to update the global metrics dictionary based on the event's `price`, `quantity`, `category`, and `region`.
+
+
+* **3.4 Queue Management:** Call `queue.task_done()` after processing each event to maintain queue health.
+* 
+**3.5 Worker Pool Initialization:** Create a startup function that spawns exactly 6 instances of the consumer worker using `asyncio.create_task()`.
+
+
+* **Testing Phase 3:** Run the generator and the 6 workers together. Periodically print the global state dictionary to verify metrics are incrementing correctly and the queue is not overflowing.
+
+### Phase 4: WebSocket Streaming Endpoint
+
+**Objective:** Broadcast the aggregated metrics to connected clients without blocking the processing pipeline.
+
+* 
+**4.1 Connection Manager:** Create a class to manage active WebSocket connections (store active clients in a `set`).
+
+
+* 
+**4.2 The Broadcast Loop:** Create a dedicated background task (`async def broadcast_metrics()`) that reads the shared state dictionary (safely using the lock) and broadcasts it to all connected clients every ~100ms to 200ms.
+
+
+* 
+**4.3 Payload Structure:** Format the broadcast payload as JSON, including calculated system metrics: `events_generated_per_sec`, `events_processed_per_sec`, `queue_backlog_size`, and the business metrics.
+
+
+* **Testing Phase 4:** Connect a simple Python or browser WebSocket client and verify it receives the JSON payload continuously.
+
+### Phase 5: Dynamic System Controls (REST APIs)
+
+**Objective:** Expose endpoints to mutate the backend's behavior on the fly (Phase 2 of the architecture).
+
+* 
+**5.1 Event Rate API:** Build a `POST /config/rate` endpoint to dynamically adjust the sleep time/batch size of the event generator.
+
+
+* 
+**5.2 Worker Scale API:** Build a `POST /config/workers` endpoint to dynamically spawn new worker tasks or gracefully cancel existing ones to scale the worker pool.
+
+
+* 
+**5.3 Metric Toggle API:** Build a `POST /config/metrics` endpoint to enable or disable specific calculations (like sliding windows).
+
+
+* **Testing Phase 5:** Use `curl` or Postman to hit these APIs while the backend is running. Observe the system behavior changing dynamically.
+
+### Phase 6: Client Simulator Tool
+
+**Objective:** Stress-test the system to ensure it meets the 200-client performance targets.
+
+* 
+**6.1 Simulator Script:** Create a standalone Python script (e.g., `simulator.py`) using `websockets` and `asyncio`.
+
+
+* 
+**6.2 Connection Scaling:** Write a loop that opens 200 concurrent WebSocket connections to the backend server.
+
+
+* **6.3 Latency Measurement:** For each client, calculate the latency of received updates (comparing the backend server timestamp in the payload to the local receipt time). Ensure latency stays between 200ms-400ms.
+
+
+* **Testing Phase 6:** Run the backend, then run the simulator. The backend should not crash, and the simulator should report stable latencies.
+
+### Phase 7: Interactive UI Dashboard
+
+**Objective:** Build the frontend visualization.
+
+* 
+**7.1 UI Skeleton:** Create a simple HTML/CSS frontend with two sections: "Controls" and "Live Metrics".
+
+
+* 
+**7.2 WebSocket Integration:** Write vanilla JavaScript to connect to the backend WebSocket endpoint and parse the incoming JSON stream.
+
+
+* 
+**7.3 Live Dashboard:** Map the incoming JSON data to HTML elements to display live numbers for Throughput, Queue Backlog, Active Clients, and Latency.
+
+
+* **7.4 Control Panel:** Add HTML sliders or input fields for Event Rate and Worker Count. Wire these inputs to `fetch()` calls that hit the REST APIs built in Phase 5.
+
+
+* **Testing Phase 7:** Open the HTML file in a browser, move the sliders, and watch the live metrics react to the changing system load.
+
