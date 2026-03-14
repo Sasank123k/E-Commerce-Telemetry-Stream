@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Suite — E-Commerce Telemetry Stream</title>
+    <meta name="description" content="Deterministic audit test suite for validating event processing accuracy.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ─── Header ─── -->
+    <header class="header" id="header">
+        <div class="header__left">
+            <div class="header__logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+            </div>
+            <div>
+                <h1 class="header__title">Telemetry Stream</h1>
+                <p class="header__subtitle">E-Commerce Event Processing</p>
+            </div>
+        </div>
+        <div class="header__right">
+            <div class="connection-badge" id="connectionBadge">
+                <span class="connection-badge__dot" id="connectionDot"></span>
+                <span class="connection-badge__text" id="connectionText">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ─── Navigation ─── -->
+    <nav class="nav-bar" id="navBar">
+        <a href="index.html" class="nav-bar__link">Live Stream</a>
+        <a href="audit.html" class="nav-bar__link nav-bar__link--active">Audit Suite</a>
+    </nav>
+
+    <main class="main">
+        <!-- ─── Audit Controls ─── -->
+        <section class="section" id="auditControlSection">
+            <h2 class="section__title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Audit Test Configuration
+            </h2>
+
+            <div class="control-card" style="margin-bottom: 1.25rem;">
+                <div class="audit-controls-grid">
+                    <div class="audit-input-group">
+                        <label for="auditTotalEvents">Total Events</label>
+                        <input type="number" id="auditTotalEvents" value="10000" min="1000" max="100000000" step="1000">
+                    </div>
+                    <div class="audit-input-group">
+                        <label for="auditTargetEps">Target EPS</label>
+                        <input type="number" id="auditTargetEps" value="100000" min="100" max="10000000" step="1000">
+                    </div>
+                </div>
+                <button class="audit-start-btn" id="auditStartBtn" onclick="startAuditTest()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Start Audit Test
+                </button>
+            </div>
+        </section>
+
+        <!-- ─── Progress ─── -->
+        <section class="section" id="progressSection">
+            <h2 class="section__title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Test Progress
+            </h2>
+
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-wrap__header">
+                    <span class="progress-wrap__label">Events Processed</span>
+                    <span class="progress-wrap__pct" id="progressPct">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressBarFill"></div>
+                </div>
+                <div class="progress-wrap__detail" id="progressDetail">0 / 0</div>
+            </div>
+
+            <!-- Live stats row -->
+            <div class="audit-live-stats" style="margin-top: 0.85rem;">
+                <div class="metric-card">
+                    <div class="metric-card__icon" style="background: var(--accent-cyan-dim); color: var(--accent-cyan);">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Events / sec</span>
+                        <span class="metric-card__value" id="auditEps">0</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card__icon" style="background: var(--accent-green-dim); color: var(--accent-green);">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Actual Revenue</span>
+                        <span class="metric-card__value" id="auditRevenue">$0</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card__icon" style="background: var(--accent-amber-dim); color: var(--accent-amber);">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    </div>
+                    <div class="metric-card__body">
+                        <span class="metric-card__label">Queue Backlog</span>
+                        <span class="metric-card__value" id="auditQueue">0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── Validation Results ─── -->
+        <section class="section" id="validationSection">
+            <h2 class="section__title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                Validation Results
+            </h2>
+
+            <div class="validation-panel" id="validationPanel">
+                <div class="validation-icon" id="validationIcon">🔬</div>
+                <div class="validation-title" id="validationTitle" style="color: var(--text-muted);">Waiting for test…</div>
+                <div class="validation-detail" id="validationDetail">Configure and start an audit test above.</div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ─── Toast container ─── -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="audit.js"></script>
+</body>
+</html>

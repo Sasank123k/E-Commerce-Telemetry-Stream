@@ -185,6 +185,38 @@ body {
     font-weight: 500;
 }
 
+/* ─── Navigation Bar ─── */
+.nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 2rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+.nav-bar__link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition-fast);
+}
+
+.nav-bar__link:hover {
+    color: var(--text-secondary);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.nav-bar__link--active {
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+}
+
 /* ─── Main ─── */
 .main {
     max-width: 1280px;
@@ -193,6 +225,184 @@ body {
     display: flex;
     flex-direction: column;
     gap: 2rem;
+}
+
+/* ─── Audit Suite Specific ─── */
+.audit-controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+    margin-bottom: 1.25rem;
+}
+
+.audit-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.audit-input-group label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.audit-input-group input {
+    width: 100%;
+    padding: 0.65rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.audit-input-group input:focus {
+    border-color: var(--accent-blue);
+}
+
+.audit-start-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.85rem 1.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.audit-start-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
+.audit-start-btn:active { transform: translateY(0); }
+
+.audit-start-btn:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Progress bar */
+.progress-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+}
+
+.progress-wrap__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+}
+
+.progress-wrap__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.progress-wrap__pct {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+}
+
+.progress-bar-bg {
+    width: 100%;
+    height: 10px;
+    background: var(--bg-input);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    border-radius: 999px;
+    transition: width var(--transition-base);
+}
+
+.progress-wrap__detail {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-top: 0.5rem;
+    text-align: right;
+}
+
+/* Validation result */
+.validation-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    text-align: center;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.validation-panel--pass {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: linear-gradient(135deg, var(--bg-card), rgba(16, 185, 129, 0.08));
+}
+
+.validation-panel--fail {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: linear-gradient(135deg, var(--bg-card), rgba(239, 68, 68, 0.08));
+}
+
+.validation-icon {
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.validation-title {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.validation-detail {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.validation-detail strong {
+    color: var(--text-primary);
+}
+
+/* Audit live stats */
+.audit-live-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.85rem;
 }
 
 /* ─── Section titles ─── */

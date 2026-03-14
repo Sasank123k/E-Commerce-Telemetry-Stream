@@ -1,18 +1,24 @@
 """
-main.py — Real-Time E-Commerce Telemetry Stream Backend.
+main.py -- Real-Time E-Commerce Telemetry Stream Backend.
 
 Phase 1: FastAPI app initialisation, shared state, concurrency primitives.
-Phase 2: High-frequency async event generator (~3,000 events/sec) with queue.
-Phase 3: Concurrent consumer workers (×6) with lock-protected aggregation.
+Phase 2: High-frequency async event generator with queue.
+Phase 3: Concurrent consumer workers with lock-protected aggregation.
 Phase 4: WebSocket streaming endpoint with broadcast every 200ms.
 Phase 5: Dynamic system controls (rate, workers, metrics toggle).
+
+Dual-Mode Architecture:
+- "random" mode: generates fresh events via Pydantic model (chaos testing)
+- "static" mode: slices from pre-loaded test_data.json pool (deterministic auditing)
+Both modes push raw dicts to the queue; consumers handle both single dicts and chunks.
 """
 
 import asyncio
 import json
-import math
+import os
 import random
 import time
+import threading # Added threading import
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -50,6 +56,9 @@ BROADCAST_INTERVAL = 0.2  # seconds (200ms)
 runtime_config = {
     "target_eps": 3_000,          # events per second (adjustable via API)
     "heavy_computation": False,   # toggle for simulated heavy processing
+    "data_source": "random",      # "random" or "static" (dual-mode toggle)
+    "is_running": True,           # pause/resume the generator
+    "audit_target_remaining": 0,  # bounded test: events left to generate (0 = unlimited)
 }
 
 # ---------------------------------------------------------------------------
@@ -96,30 +105,64 @@ class SlidingRateTracker:
         self.window_sec = window_sec
         self._samples: deque[tuple[float, int]] = deque()
         self.rate: float = 0.0  # latest computed rate
+        self._lock = threading.Lock() # Added threading lock
 
     def push(self, now: float, counter: int) -> float:
         """Record a sample and return the smoothed rate."""
-        self._samples.append((now, counter))
+        with self._lock: # Protected with lock
+            self._samples.append((now, counter))
 
-        # Evict samples older than the window
-        cutoff = now - self.window_sec
-        while len(self._samples) > 2 and self._samples[0][0] < cutoff:
-            self._samples.popleft()
+            # Evict samples older than the window
+            cutoff = now - self.window_sec
+            while len(self._samples) > 2 and self._samples[0][0] < cutoff:
+                self._samples.popleft()
 
-        # Need at least two samples to compute a rate
-        if len(self._samples) >= 2:
-            t0, c0 = self._samples[0]
-            t1, c1 = self._samples[-1]
-            dt = t1 - t0
-            self.rate = round((c1 - c0) / dt, 1) if dt > 0 else 0.0
-        return self.rate
+            # Need at least two samples to compute a rate
+            if len(self._samples) >= 2:
+                t0, c0 = self._samples[0]
+                t1, c1 = self._samples[-1]
+                dt = t1 - t0
+                self.rate = round((c1 - c0) / dt, 1) if dt > 0 else 0.0
+            return self.rate
+
+    def clear(self):
+        """Thread-safe clear of all samples."""
+        with self._lock:
+            self._samples.clear()
+            self.rate = 0.0
 
 
 _processed_rate_tracker = SlidingRateTracker(window_sec=3.0)
 _generated_rate_tracker = SlidingRateTracker(window_sec=3.0)
 
 # ---------------------------------------------------------------------------
-# Phase 2.2–2.4: High-Frequency Event Generator
+# Pre-computed Event Pool (extreme perf for static mode)
+# ---------------------------------------------------------------------------
+_EVENT_POOL_SIZE = 10_000
+
+def _build_event_pool() -> list[dict]:
+    """Create a static pool of raw-dict events at startup."""
+    pool = []
+    for _ in range(_EVENT_POOL_SIZE):
+        cat = random.choice(CATEGORIES)
+        lo, hi = PRICE_RANGES[cat]
+        pool.append({
+            "price": round(random.uniform(lo, hi), 2),
+            "quantity": random.randint(1, 5),
+            "category": cat,
+            "region": random.choice(REGIONS),
+        })
+    return pool
+
+_EVENT_POOL: list[dict] = _build_event_pool()
+
+# Static testing pool (loaded from test_data.json in lifespan, if available)
+_STATIC_POOL: list[dict] = []
+_STATIC_BASELINE: dict = {}
+
+
+# ---------------------------------------------------------------------------
+# Random Event Generator (chaos testing -- uses Pydantic model)
 # ---------------------------------------------------------------------------
 
 def _make_random_event() -> TransactionEvent:
@@ -138,55 +181,107 @@ def _make_random_event() -> TransactionEvent:
     )
 
 
+# ---------------------------------------------------------------------------
+# Dual-Mode Event Generator
+# ---------------------------------------------------------------------------
+
 async def generate_events() -> None:
     """
-    Continuously generate mock transaction events.
-    Reads runtime_config["target_eps"] each cycle so rate changes
-    take effect immediately without restarting the task.
-
-    Uses a token-bucket approach: compares actual events generated in
-    the current 1-second epoch against the target.  When ahead of
-    schedule, sleeps for the overshoot.  Epochs reset every second to
-    prevent long-term drift.
+    Dual-mode event generator with token-bucket rate limiting.
+    Supports pause/resume via runtime_config["is_running"] and
+    bounded tests via runtime_config["audit_target_remaining"].
     """
     _gen_stats["generator_running"] = True
     _gen_stats["gen_start_time"] = time.time()
 
+    CHUNKS_PER_SEC = 20
+
     print(f"[generator] Starting -- initial target rate: {runtime_config['target_eps']} eps")
 
     epoch_start = time.monotonic()
-    epoch_count = 0             # events generated in the current epoch
+    epoch_count = 0
+    pool_idx = 0
 
     try:
         while True:
+            # --- Pause check ---
+            if not runtime_config["is_running"]:
+                await asyncio.sleep(0.1)
+                epoch_start = time.monotonic()
+                epoch_count = 0
+                continue
+
             target = runtime_config["target_eps"]
+            source = runtime_config["data_source"]
+            audit_rem = runtime_config["audit_target_remaining"]
 
-            # Generate one event
-            event = _make_random_event()
-            await event_queue.put(event)
-            _gen_stats["events_generated"] += 1
-            epoch_count += 1
+            if source == "random":
+                # --- RANDOM MODE ---
+                event = _make_random_event()
+                evt_dict = {
+                    "price": event.price,
+                    "quantity": event.quantity,
+                    "category": event.category,
+                    "region": event.region,
+                }
+                await event_queue.put(evt_dict)
+                _gen_stats["events_generated"] += 1
+                epoch_count += 1
 
-            # Check how far ahead/behind we are in this epoch
+                # Bounded test accounting
+                if audit_rem > 0:
+                    runtime_config["audit_target_remaining"] -= 1
+                    if runtime_config["audit_target_remaining"] <= 0:
+                        runtime_config["audit_target_remaining"] = 0
+                        runtime_config["is_running"] = False
+                        print("[generator] Audit target reached -- auto-paused")
+
+            else:
+                # --- STATIC MODE ---
+                pool = _STATIC_POOL if _STATIC_POOL else _EVENT_POOL
+                pool_len = len(pool)
+                chunk_size = max(100, min(50_000, target // CHUNKS_PER_SEC))
+
+                # Clamp to audit remaining if bounded test
+                if audit_rem > 0:
+                    chunk_size = min(chunk_size, audit_rem)
+
+                end_idx = pool_idx + chunk_size
+                if end_idx <= pool_len:
+                    chunk = pool[pool_idx:end_idx]
+                else:
+                    chunk = pool[pool_idx:] + pool[:end_idx - pool_len]
+                pool_idx = end_idx % pool_len
+
+                await event_queue.put(chunk)
+                _gen_stats["events_generated"] += chunk_size
+                epoch_count += chunk_size
+
+                # Bounded test accounting
+                if audit_rem > 0:
+                    runtime_config["audit_target_remaining"] -= chunk_size
+                    if runtime_config["audit_target_remaining"] <= 0:
+                        runtime_config["audit_target_remaining"] = 0
+                        runtime_config["is_running"] = False
+                        print("[generator] Audit target reached -- auto-paused")
+
+            # --- Token-bucket timing ---
             elapsed = time.monotonic() - epoch_start
             expected = epoch_count / target if target > 0 else 0
 
             if epoch_count >= target:
-                # We've hit the target for this second — sleep the remainder
                 remaining = 1.0 - elapsed
                 if remaining > 0:
                     await asyncio.sleep(remaining)
-                # Reset epoch
                 epoch_start = time.monotonic()
                 epoch_count = 0
             elif expected > elapsed:
-                # Ahead of schedule — sleep the difference
                 await asyncio.sleep(expected - elapsed)
-            elif epoch_count % 30 == 0:
-                # Yield to event loop periodically
+            elif source == "random" and epoch_count % 30 == 0:
+                await asyncio.sleep(0)
+            elif source == "static":
                 await asyncio.sleep(0)
 
-            # Reset epoch if > 1 second has passed (rate was changed mid-epoch)
             if time.monotonic() - epoch_start >= 1.0:
                 epoch_start = time.monotonic()
                 epoch_count = 0
@@ -202,61 +297,59 @@ async def generate_events() -> None:
 
 async def consume_events(worker_id: int) -> None:
     """
-    Pull events from the queue and safely update shared metrics.
-    Uses local batching: accumulates up to BATCH_FLUSH_SIZE events
-    before acquiring the lock once to flush, reducing contention ~50x.
-    Heavy computation uses an async sleep to avoid blocking the loop.
+    Pull items from the queue -- handles both modes:
+    - list[dict]  (static mode chunks)
+    - dict        (random mode single events)
+
+    Aggregates metrics locally, then flushes once under the lock.
+    Uses round(,2) throughout to prevent floating-point drift.
     """
-    BATCH_FLUSH_SIZE = 50
     print(f"[worker-{worker_id}] Consumer worker started.")
 
     try:
         while True:
-            # ── Local accumulators (no lock needed) ──
-            local_events = 0
+            item = await event_queue.get()
+
+            # -- Normalise: always work with a list of dicts --
+            if isinstance(item, list):
+                chunk = item
+            else:
+                chunk = [item]
+
+            # -- Local accumulators (pure Python, no async overhead) --
+            local_events = len(chunk)
             local_revenue = 0.0
             local_cat: dict[str, float] = {}
             local_reg: dict[str, float] = {}
 
-            # Pull up to BATCH_FLUSH_SIZE events without locking
-            for _ in range(BATCH_FLUSH_SIZE):
-                try:
-                    event: TransactionEvent = event_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    if local_events == 0:
-                        # Nothing in queue — wait for one event
-                        event = await event_queue.get()
-                    else:
-                        # Partial batch — flush what we have
-                        break
+            for evt in chunk:
+                rev = round(evt["price"] * evt["quantity"], 2)
+                local_revenue = round(local_revenue + rev, 2)
+                cat = evt["category"]
+                reg = evt["region"]
+                local_cat[cat] = round(local_cat.get(cat, 0.0) + rev, 2)
+                local_reg[reg] = round(local_reg.get(reg, 0.0) + rev, 2)
 
-                revenue = round(event.price * event.quantity, 2)
+            # Phase 5: optional heavy computation toggle (non-blocking)
+            if runtime_config["heavy_computation"]:
+                await asyncio.sleep(0.001)
 
-                # Phase 5: optional heavy computation toggle (non-blocking)
-                if runtime_config["heavy_computation"]:
-                    await asyncio.sleep(0.001)
-
-                local_events += 1
-                local_revenue += revenue
-                local_cat[event.category] = local_cat.get(event.category, 0.0) + revenue
-                local_reg[event.region] = local_reg.get(event.region, 0.0) + revenue
-                event_queue.task_done()
-
-            # ── Flush locals into shared state (single lock acquire) ──
-            if local_events > 0:
-                async with state_lock:
-                    shared_state["total_events_processed"] += local_events
-                    shared_state["total_revenue"] = round(
-                        shared_state["total_revenue"] + local_revenue, 2
+            # -- Single lock acquire to flush --
+            async with state_lock:
+                shared_state["total_events_processed"] += local_events
+                shared_state["total_revenue"] = round(
+                    shared_state["total_revenue"] + local_revenue, 2
+                )
+                for cat, rev in local_cat.items():
+                    shared_state["revenue_by_category"][cat] = round(
+                        shared_state["revenue_by_category"][cat] + rev, 2
                     )
-                    for cat, rev in local_cat.items():
-                        shared_state["revenue_by_category"][cat] = round(
-                            shared_state["revenue_by_category"][cat] + rev, 2
-                        )
-                    for reg, rev in local_reg.items():
-                        shared_state["revenue_by_region"][reg] = round(
-                            shared_state["revenue_by_region"][reg] + rev, 2
-                        )
+                for reg, rev in local_reg.items():
+                    shared_state["revenue_by_region"][reg] = round(
+                        shared_state["revenue_by_region"][reg] + rev, 2
+                    )
+
+            event_queue.task_done()
 
     except asyncio.CancelledError:
         print(f"[worker-{worker_id}] Stopped.")
@@ -370,6 +463,9 @@ async def broadcast_metrics() -> None:
                     "active_workers": len(_worker_tasks),
                     "target_eps": runtime_config["target_eps"],
                     "heavy_computation": runtime_config["heavy_computation"],
+                    "data_source": runtime_config["data_source"],
+                    "is_running": runtime_config["is_running"],
+                    "audit_target_remaining": runtime_config["audit_target_remaining"],
                     "server_uptime_sec": round(gen_elapsed, 1),
                 },
             }
@@ -391,7 +487,21 @@ DEFAULT_NUM_WORKERS = 6
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _next_worker_id
+    global _next_worker_id, _STATIC_POOL, _STATIC_BASELINE
+
+    # --- Load static test data (if available) ---
+    test_data_path = os.path.join(os.path.dirname(__file__) or ".", "test_data.json")
+    if os.path.isfile(test_data_path):
+        try:
+            with open(test_data_path, "r", encoding="utf-8") as f:
+                test_data = json.load(f)
+            _STATIC_POOL = test_data.get("events", [])
+            _STATIC_BASELINE = test_data.get("baseline", {})
+            print(f"[lifespan] Loaded static test data: {len(_STATIC_POOL)} events")
+        except Exception as e:
+            print(f"[lifespan] WARNING: Could not load test_data.json: {e}")
+    else:
+        print(f"[lifespan] WARNING: test_data.json not found -- static mode will use random pool")
 
     # --- STARTUP ---
     # Phase 2: Event generator
@@ -444,13 +554,23 @@ app.mount("/dashboard", StaticFiles(directory="frontend", html=True), name="dash
 # ---------------------------------------------------------------------------
 
 class RateConfig(BaseModel):
-    target_eps: int = Field(..., ge=100, le=100_000, description="Target events per second (100-100,000)")
+    target_eps: int = Field(..., ge=100, le=10_000_000, description="Target events per second (100-10,000,000)")
 
 class WorkerConfig(BaseModel):
     worker_count: int = Field(..., ge=1, le=20, description="Desired number of active workers (1–20)")
 
 class MetricsConfig(BaseModel):
     heavy_computation: bool = Field(..., description="Enable/disable simulated heavy computation in workers")
+
+class SourceConfig(BaseModel):
+    source: str = Field(..., pattern="^(random|static)$", description="Data source mode: 'random' or 'static'")
+
+class StateConfig(BaseModel):
+    is_running: bool = Field(..., description="Pause (false) or resume (true) the event generator")
+
+class AuditConfig(BaseModel):
+    total_events: int = Field(..., ge=1, le=100_000_000, description="Total events to generate in the audit run")
+    target_eps: int = Field(..., ge=100, le=10_000_000, description="Target events per second for the audit run")
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +639,125 @@ async def set_metrics_toggle(cfg: MetricsConfig):
     }
 
 
+@app.post("/config/source", tags=["config"])
+async def set_data_source(cfg: SourceConfig):
+    """Toggle between 'random' (chaos testing) and 'static' (deterministic auditing)."""
+    old = runtime_config["data_source"]
+    runtime_config["data_source"] = cfg.source
+    pool_status = f"{len(_STATIC_POOL)} events" if _STATIC_POOL else "using random fallback pool"
+    print(f"[config] Data source changed: {old} -> {cfg.source} (static pool: {pool_status})")
+    return {
+        "status": "ok",
+        "previous_source": old,
+        "new_source": cfg.source,
+        "static_pool_loaded": len(_STATIC_POOL) > 0,
+        "static_pool_size": len(_STATIC_POOL),
+    }
+
+
+@app.post("/config/state", tags=["config"])
+async def set_generator_state(cfg: StateConfig):
+    """Pause or resume the event generator."""
+    old = runtime_config["is_running"]
+    runtime_config["is_running"] = cfg.is_running
+    label = "RESUMED" if cfg.is_running else "PAUSED"
+    print(f"[config] Generator {label}")
+    return {"status": "ok", "previous_is_running": old, "new_is_running": cfg.is_running}
+
+
+@app.post("/config/reset", tags=["config"])
+async def reset_metrics():
+    """Reset all shared metrics, flush the queue, and reset gen stats."""
+    runtime_config["is_running"] = False
+    await asyncio.sleep(0.3)  # let generator pause
+
+    # Flush the queue
+    flushed = 0
+    while not event_queue.empty():
+        try:
+            event_queue.get_nowait()
+            event_queue.task_done()
+            flushed += 1
+        except asyncio.QueueEmpty:
+            break
+
+    # Reset shared state
+    async with state_lock:
+        shared_state["total_events_processed"] = 0
+        shared_state["total_revenue"] = 0.0
+        for cat in CATEGORIES:
+            shared_state["revenue_by_category"][cat] = 0.0
+        for reg in REGIONS:
+            shared_state["revenue_by_region"][reg] = 0.0
+
+    # Reset gen stats
+    _gen_stats["events_generated"] = 0
+    _gen_stats["gen_start_time"] = time.time()
+
+    # Reset rate trackers
+    _processed_rate_tracker.clear()
+    _generated_rate_tracker.clear()
+
+    runtime_config["audit_target_remaining"] = 0
+
+    print(f"[config] Metrics reset (flushed {flushed} queue items)")
+    return {"status": "ok", "flushed_queue_items": flushed}
+
+
+@app.post("/audit/run", tags=["audit"])
+async def start_audit_run(cfg: AuditConfig):
+    """
+    Orchestrated bounded audit test.
+    Resets state, switches to static mode, sets target, and starts.
+    """
+    # 1. Pause and reset
+    runtime_config["is_running"] = False
+    await asyncio.sleep(0.3)
+
+    # Flush queue
+    flushed = 0
+    while not event_queue.empty():
+        try:
+            event_queue.get_nowait()
+            event_queue.task_done()
+            flushed += 1
+        except asyncio.QueueEmpty:
+            break
+
+    # Reset shared state
+    async with state_lock:
+        shared_state["total_events_processed"] = 0
+        shared_state["total_revenue"] = 0.0
+        for cat in CATEGORIES:
+            shared_state["revenue_by_category"][cat] = 0.0
+        for reg in REGIONS:
+            shared_state["revenue_by_region"][reg] = 0.0
+
+    # Reset gen stats
+    _gen_stats["events_generated"] = 0
+    _gen_stats["gen_start_time"] = time.time()
+
+    _processed_rate_tracker.clear()
+    _generated_rate_tracker.clear()
+
+    # 2. Configure for audit
+    runtime_config["data_source"] = "static"
+    runtime_config["target_eps"] = cfg.target_eps
+    runtime_config["audit_target_remaining"] = cfg.total_events
+
+    # 3. Start
+    runtime_config["is_running"] = True
+
+    print(f"[audit] Started: {cfg.total_events:,} events @ {cfg.target_eps:,} eps (static mode)")
+    return {
+        "status": "ok",
+        "total_events": cfg.total_events,
+        "target_eps": cfg.target_eps,
+        "data_source": "static",
+        "flushed_queue_items": flushed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Phase 4: WebSocket endpoint
 # ---------------------------------------------------------------------------
@@ -573,6 +812,17 @@ async def debug_config():
         "active_worker_ids": sorted(_worker_tasks.keys()),
         "active_worker_count": len(_worker_tasks),
     }
+
+
+@app.get("/debug/baseline", tags=["debug"])
+async def debug_baseline():
+    """Return the static test data baseline (from test_data.json)."""
+    if not _STATIC_BASELINE:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "No baseline loaded. Run 'python generate_test_data.py' first."},
+        )
+    return JSONResponse(content=_STATIC_BASELINE)
 
 
 @app.get("/health", tags=["system"])

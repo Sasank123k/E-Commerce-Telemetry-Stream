@@ -36,6 +36,12 @@
         </div>
     </header>
 
+    <!-- ─── Navigation ─── -->
+    <nav class="nav-bar" id="navBar">
+        <a href="index.html" class="nav-bar__link nav-bar__link--active">Live Stream</a>
+        <a href="audit.html" class="nav-bar__link">Audit Suite</a>
+    </nav>
+
     <main class="main">
         <!-- ─── Live Metrics Panel ─── -->
         <section class="section" id="metricsSection">
@@ -140,8 +146,8 @@
                         <span class="control-card__badge" id="rateCurrentBadge">Current: 3000</span>
                     </div>
                     <div class="control-card__row">
-                        <input type="range" id="rateSlider" class="control-slider" min="100" max="100000" step="100" value="3000">
-                        <input type="number" id="rateInput" class="control-number" min="100" max="100000" step="100" value="3000">
+                        <input type="range" id="rateSlider" class="control-slider" min="100" max="10000000" step="50000" value="3000">
+                        <input type="number" id="rateInput" class="control-number" min="100" max="10000000" step="50000" value="3000">
                     </div>
                     <button class="control-btn" id="rateApplyBtn" onclick="applyRate()">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -177,6 +183,25 @@
                         <span class="toggle__slider"></span>
                         <span class="toggle__label" id="heavyLabel">Disabled</span>
                     </label>
+                </div>
+
+                <!-- Stream Control (Play/Pause + Reset) -->
+                <div class="control-card" id="controlStream">
+                    <div class="control-card__header">
+                        <span class="control-card__label">Stream Control</span>
+                        <span class="control-card__badge" id="streamStateBadge">Running</span>
+                    </div>
+                    <p class="control-card__desc">Pause/resume the event generator and reset all metrics.</p>
+                    <div class="control-card__row" style="gap: 0.5rem;">
+                        <button class="control-btn" id="playPauseBtn" onclick="togglePlayPause()" style="flex:1;">
+                            <svg id="playPauseIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                            <span id="playPauseLabel">Pause</span>
+                        </button>
+                        <button class="control-btn" id="resetBtn" onclick="resetMetrics()" style="flex:1; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                            Reset
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>

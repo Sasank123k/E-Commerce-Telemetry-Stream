@@ -39,6 +39,10 @@ const dom = {
     heavyLabel:           document.getElementById("heavyLabel"),
     heavyCurrentBadge:    document.getElementById("heavyCurrentBadge"),
 
+    playPauseBtn:         document.getElementById("playPauseBtn"),
+    playPauseLabel:       document.getElementById("playPauseLabel"),
+    streamStateBadge:     document.getElementById("streamStateBadge"),
+
     toastContainer: document.getElementById("toastContainer"),
 };
 
@@ -216,6 +220,14 @@ function updateDashboard(data) {
         dom.heavyCurrentBadge.textContent = heavy ? "ON" : "OFF";
         dom.heavyCheckbox.checked = heavy;
         dom.heavyLabel.textContent = heavy ? "Enabled" : "Disabled";
+
+        // Sync stream state badge + local _isRunning from server truth
+        if (typeof data.system.is_running !== "undefined") {
+            const running = data.system.is_running;
+            _isRunning = running;  // always sync from server
+            dom.streamStateBadge.textContent = running ? "Running" : "Paused";
+            dom.playPauseLabel.textContent = running ? "Pause" : "Resume";
+        }
     }
 
     // Revenue breakdowns
@@ -260,8 +272,8 @@ async function postConfig(endpoint, body, successMsg) {
 // Exposed to onclick handlers in HTML
 function applyRate() {
     const val = parseInt(dom.rateInput.value, 10);
-    if (isNaN(val) || val < 100 || val > 100000) {
-        showToast("Rate must be between 100 and 100,000", "error");
+    if (isNaN(val) || val < 100 || val > 10000000) {
+        showToast("Rate must be between 100 and 10,000,000", "error");
         return;
     }
     postConfig("/config/rate", { target_eps: val }, `Event rate set to ${val.toLocaleString()} eps`);
@@ -281,6 +293,25 @@ function applyHeavy() {
     postConfig("/config/metrics", { heavy_computation: on },
         on ? "Heavy computation enabled" : "Heavy computation disabled"
     );
+}
+
+// Synced from WebSocket — always reflects actual server state
+let _isRunning = true;
+
+function togglePlayPause() {
+    const newState = !_isRunning;
+    postConfig("/config/state", { is_running: newState },
+        newState ? "Stream resumed" : "Stream paused"
+    ).then(() => {
+        // Also switch back to random mode when resuming from live page
+        if (newState) {
+            postConfig("/config/source", { source: "random" }, "");
+        }
+    });
+}
+
+function resetMetrics() {
+    postConfig("/config/reset", {}, "Metrics reset to zero");
 }
 
 // ═══════════════════════════════════════════════════════════════════
