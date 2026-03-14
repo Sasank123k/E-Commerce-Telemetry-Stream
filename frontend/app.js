@@ -46,8 +46,7 @@ const dom = {
 function formatNumber(n) {
     if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + "B";
     if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1) + "M";
-    if (n >= 1_000)         return (n / 1_000).toFixed(1) + "K";
-    return n.toLocaleString();
+    return Math.round(n).toLocaleString();
 }
 
 function formatCurrency(n) {
@@ -261,8 +260,8 @@ async function postConfig(endpoint, body, successMsg) {
 // Exposed to onclick handlers in HTML
 function applyRate() {
     const val = parseInt(dom.rateInput.value, 10);
-    if (isNaN(val) || val < 100 || val > 10000) {
-        showToast("Rate must be between 100 and 10,000", "error");
+    if (isNaN(val) || val < 100 || val > 100000) {
+        showToast("Rate must be between 100 and 100,000", "error");
         return;
     }
     postConfig("/config/rate", { target_eps: val }, `Event rate set to ${val.toLocaleString()} eps`);

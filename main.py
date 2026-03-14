@@ -203,35 +203,61 @@ async def generate_events() -> None:
 async def consume_events(worker_id: int) -> None:
     """
     Pull events from the queue and safely update shared metrics.
-    When runtime_config["heavy_computation"] is True, an artificial
-    math-heavy workload is added to simulate expensive processing.
+    Uses local batching: accumulates up to BATCH_FLUSH_SIZE events
+    before acquiring the lock once to flush, reducing contention ~50x.
+    Heavy computation uses an async sleep to avoid blocking the loop.
     """
+    BATCH_FLUSH_SIZE = 50
     print(f"[worker-{worker_id}] Consumer worker started.")
 
     try:
         while True:
-            event: TransactionEvent = await event_queue.get()
+            # ── Local accumulators (no lock needed) ──
+            local_events = 0
+            local_revenue = 0.0
+            local_cat: dict[str, float] = {}
+            local_reg: dict[str, float] = {}
 
-            revenue = round(event.price * event.quantity, 2)
+            # Pull up to BATCH_FLUSH_SIZE events without locking
+            for _ in range(BATCH_FLUSH_SIZE):
+                try:
+                    event: TransactionEvent = event_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    if local_events == 0:
+                        # Nothing in queue — wait for one event
+                        event = await event_queue.get()
+                    else:
+                        # Partial batch — flush what we have
+                        break
 
-            # Phase 5: optional heavy computation toggle
-            if runtime_config["heavy_computation"]:
-                # Simulate CPU-bound work (math ops on the event data)
-                _ = sum(math.sqrt(event.price * i) for i in range(1, 50))
+                revenue = round(event.price * event.quantity, 2)
 
-            async with state_lock:
-                shared_state["total_events_processed"] += 1
-                shared_state["total_revenue"] = round(
-                    shared_state["total_revenue"] + revenue, 2
-                )
-                shared_state["revenue_by_category"][event.category] = round(
-                    shared_state["revenue_by_category"][event.category] + revenue, 2
-                )
-                shared_state["revenue_by_region"][event.region] = round(
-                    shared_state["revenue_by_region"][event.region] + revenue, 2
-                )
+                # Phase 5: optional heavy computation toggle (non-blocking)
+                if runtime_config["heavy_computation"]:
+                    await asyncio.sleep(0.001)
 
-            event_queue.task_done()
+                local_events += 1
+                local_revenue += revenue
+                local_cat[event.category] = local_cat.get(event.category, 0.0) + revenue
+                local_reg[event.region] = local_reg.get(event.region, 0.0) + revenue
+                event_queue.task_done()
+
+            # ── Flush locals into shared state (single lock acquire) ──
+            if local_events > 0:
+                async with state_lock:
+                    shared_state["total_events_processed"] += local_events
+                    shared_state["total_revenue"] = round(
+                        shared_state["total_revenue"] + local_revenue, 2
+                    )
+                    for cat, rev in local_cat.items():
+                        shared_state["revenue_by_category"][cat] = round(
+                            shared_state["revenue_by_category"][cat] + rev, 2
+                        )
+                    for reg, rev in local_reg.items():
+                        shared_state["revenue_by_region"][reg] = round(
+                            shared_state["revenue_by_region"][reg] + rev, 2
+                        )
+
     except asyncio.CancelledError:
         print(f"[worker-{worker_id}] Stopped.")
 
@@ -418,7 +444,7 @@ app.mount("/dashboard", StaticFiles(directory="frontend", html=True), name="dash
 # ---------------------------------------------------------------------------
 
 class RateConfig(BaseModel):
-    target_eps: int = Field(..., ge=100, le=10_000, description="Target events per second (100–10,000)")
+    target_eps: int = Field(..., ge=100, le=100_000, description="Target events per second (100-100,000)")
 
 class WorkerConfig(BaseModel):
     worker_count: int = Field(..., ge=1, le=20, description="Desired number of active workers (1–20)")
